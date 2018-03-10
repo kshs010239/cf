@@ -1,0 +1,269 @@
+#!/usr/bin/env python3
+import requests
+import getpass
+import re
+import os
+import pickle
+import sys
+import tabulate
+from bs4 import BeautifulSoup
+
+pname = "cf"
+
+class CF:
+	def cat(self, inPath):
+		try:
+			fin = open(inPath, "r")
+			s = ""
+			for line in fin:
+				s += line;
+			return s
+		except IOError:
+			print('no such file')
+			return None
+
+	def dump(self, outPath, text):
+		try:
+			fout = open(outPath, "w")
+			fout.write(text)
+		except IOError:
+			print("dump error")
+			pass
+
+
+	def getPath(self):
+		realpath = os.path.realpath(__file__)
+		realpath = realpath[0: realpath.rfind('/')]
+		return realpath + "/.cookie"
+
+
+	def checkLogin(self, r = None):
+		if r == None:
+			r = self.s.get(self.url)
+		if 'Logout' not in r.text:
+			self.login()
+			print('not login')
+			exit()
+
+	def __init__(self, contest = True, checkCookie = False):
+		self.cookiePath = self.getPath()
+		self.url = "http://codeforces.com"
+		if contest:
+			self.contest = self.cat('.contest')[0:-1]
+			print(self.contest)
+		self.headers = {
+			'Referer': self.url,
+			'User-agent': 
+				'Mozilla/5.0 (X11; CrOS i686 2268.111.0) AppleWebKit/536.11 (KHTML, like Gecko) Chrome/20.0.1132.57 Safari/536.11'
+		}
+		cookie = self.getCookie()
+		self.s = requests.Session()
+		if not cookie:
+			self.login()
+		else:
+			self.s.cookies = cookie
+			if checkCookie:
+				check_login()	
+
+	def getCookie(self):
+		try:
+			fin = open(self.cookiePath, "rb")
+			tmp = requests.utils.cookiejar_from_dict(pickle.load(fin))
+			return tmp
+		except IOError:
+			return None
+
+	def rememberMe(self, h, cookie):
+		try:
+			fout = open(self.cookiePath, "wb")
+			pickle.dump(requests.utils.dict_from_cookiejar(cookie), fout)
+		except IOError:
+			exit()
+
+	def logout(self):
+		os.remove(self.cookiePath)
+
+	def getCsrf(self, content):
+		csrf_token = re.search('\"X-Csrf-Token\".*\".*\"', content.decode("utf-8")).group(0)
+		csrf_token = re.search('(?<=content=\")[^\"]*', csrf_token).group(0)
+		return csrf_token
+
+	def init(self, URL):
+		URL = URL.split('/')
+		self.dump('.contest', URL[-2] + '/' + URL[-1] + '\n')
+
+	def who(self):
+		pass
+	
+	def which(self):
+		if os.path.isfile('.contest'):
+			self.cat('.contest')
+		else:
+			print('no contest')
+
+	def login(self):
+		s = self.s
+		handle, password, rememberMe = (input("handle: "), getpass.getpass("password: "), input('remember me?(y/n):'))
+		url = self.url + "/enter"
+		r = s.get(url)
+		data = {"csrf_token":self.getCsrf(r.content), "handle":handle, "password":password, "action":"enter"}
+		if rememberMe:
+			data['remember'] = ""
+	
+		r = s.post(url, data=data, headers = self.headers)
+		if r.status_code != 200:
+			print("<error>", r.status_code)
+			exit()
+		if "enter" in r.url:
+			print("login fail")
+			exit()
+		print("login success")
+		self.s = s
+		if rememberMe in ('y', 'Y'):
+			self.rememberMe(handle, s.cookies)
+			
+	def test(self, problem, exePath = 'a.out'):
+		dumpBase = '.' + problem
+		def test_parser(soup, class_):
+			test = soup.find_all('div', class_= class_)
+			new_test = [x.find('pre').get_text() for x in test]
+			return new_test
+		if not os.path.isfile(dumpBase + '.in'):
+			s = self.s
+			url = self.url + '/' + self.contest + "/problem/" + problem
+			r = s.get(url)
+			soup = BeautifulSoup(r.text, 'html.parser')
+			test_in = test_parser(soup, "input")
+			test_out = test_parser(soup, "output")
+			inp = "".join([x + '\n' for x in test_in])
+			out = "".join([x + '\n' for x in test_out])
+			self.dump(dumpBase+'.in', inp)
+			self.dump(dumpBase+'.out', out)
+		fin = open(dumpBase + '.in')
+		fout = open(dumpBase + '.out')
+		inp = [x.replace('<br/>', '\n') for x in fin]
+		out = [x.replace('<br/>', '\n') for x in fout]
+		for i in range(len(inp)):
+			print('Case ' + str(i) + ':')
+			print(inp[i], end = '')
+			print("your out:")
+
+			os.system("echo " + '"' +inp[i] + '"' + " | ./" + exePath + " " + "> .tmp.out; cat .tmp.out")	
+			print("sample out:")
+			print(out[i], end = '')
+			print()
+	
+	def submission(self):
+		url = self.url + '/' + self.contest + '/my'
+		r = self.s.get(url)
+		self.checkLogin(r)
+		soup = BeautifulSoup(r.text, 'html.parser')
+		soup_v = soup.findAll('tr', attrs = {'data-a':re.compile(r'.*')})
+		soup_g = [x.findAll('td') for x in soup_v]
+		table = []
+		for x in soup_g:
+			table.append([])
+			for i in range(len(x)):
+				if i in [0, 2]:
+					continue
+				y = x[i]
+				string = y.get_text()
+				tmp = [i for i in range(len(string)) if string[i] not in '\t\n \r']
+				if i == 3:
+					table[-1].append(string[tmp[0]])
+				else:
+					table[-1].append(string[tmp[0]: tmp[-1] + 1])
+		print(tabulate.tabulate(table))	
+
+
+	def submit(self, problem, lang, sourcePath, force = False):
+		s = self.s
+		url = self.url + '/' + self.contest + "/submit"
+		r = s.get(url)
+		self.checkLogin(r)
+		"""
+			select - programTypeId = {'G++14': 50, "pyhon2.7":7, "python3.6": 31}
+		"""
+		langType = {'g++': 50, "python2": 7, "python3": 31}
+		source = self.cat(sourcePath)
+		if source == None:
+			return
+		data = {
+			'csrf_token' : self.getCsrf(r.content),
+			'programTypeId': langType[lang], 
+			'submittedProblemIndex': problem,
+			'source': source
+		}
+		r = s.post(url, data=data, headers=self.headers)
+		if r.status_code != 200:
+			print('<error>', r.status_code)
+			exit()
+		if 'submit' in r.url:
+			print('submit fail')
+			exit()
+		print('submit success');
+
+
+def usage(which = None):
+	if which == None:
+		print(pname, "(login|logout|submit|test|help|init) ...")
+		print('for more info, use "cf help (login|logout|submit|test)"')
+	elif which == 'login':
+		print(pname, "login")
+	elif which == 'logout':
+		print(pname, "logout")	
+	elif which == 'submit':
+		print(pname, 'submit problem lang(g++|python2|python3) [source]')
+		print('e.g:', pname, 'submit A g++ A.cpp')
+	elif which == 'test':
+		print(pname, 'test problem [executable]')
+		print('e.g: "' + pname + ' test A a.out" or simply "' + pname + ' test A"')
+	elif which == 'init':
+		print(pname, 'init URL')
+	exit()
+
+cf = CF()
+argv = sys.argv
+if len(argv) < 2:
+	usage()
+cmd = argv[1]
+if cmd == 'submit':
+	if len(argv) != 5:
+		usage('submit')
+	cf.submit(*argv[2:])
+
+elif cmd == 'init':
+	if len(argv) < 3:
+		usage('init')
+	cf.init(argv[2])
+
+elif cmd == 'which':
+	cf.which()
+
+elif cmd == 'test':
+	if len(argv) not in (3, 4):
+		usage('test')
+	cf.test(*argv[2:])
+
+elif cmd == 'submission':
+	if len(argv) != 2:
+		usage('submission')
+	cf.submission(argv[2])
+
+elif cmd == 'login':
+	cf.login()
+
+elif cmd == 'logout':
+	cf.logout()
+
+elif cmd == 'help':
+	if len(argv) > 2:
+		usage(argv[2])
+	else:
+		usage()
+
+else:
+	usage()
+
+#print('submit')
+#tmp.submit(contest = '922', problem = 'C', lang = 'g++', sourcePath = 'C.cpp')
