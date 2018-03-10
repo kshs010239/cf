@@ -45,12 +45,11 @@ class CF:
 			print('not login')
 			exit()
 
-	def __init__(self, contest = True, checkCookie = False):
+	def __init__(self, checkCookie = False):
 		self.cookiePath = self.getPath()
 		self.url = "http://codeforces.com"
-		if contest:
+		if os.path.isfile('.contest'):
 			self.contest = self.cat('.contest')[0:-1]
-			print(self.contest)
 		self.headers = {
 			'Referer': self.url,
 			'User-agent': 
@@ -126,7 +125,8 @@ class CF:
 		dumpBase = '.' + problem
 		def test_parser(soup, class_):
 			test = soup.find_all('div', class_= class_)
-			new_test = [x.find('pre').get_text() for x in test]
+			new_test = [re.search("(?<=<pre>).*(?=</pre)", str(x)).group(0) for x in test]
+			print(new_test)
 			return new_test
 		if not os.path.isfile(dumpBase + '.in'):
 			s = self.s
@@ -141,8 +141,9 @@ class CF:
 			self.dump(dumpBase+'.out', out)
 		fin = open(dumpBase + '.in')
 		fout = open(dumpBase + '.out')
-		inp = [x.replace('<br/>', '\n') for x in fin]
-		out = [x.replace('<br/>', '\n') for x in fout]
+		inp = [x.replace('<br/>', '\n')[0:-1] for x in fin]
+		print(inp)
+		out = [x.replace('<br/>', '\n')[0:-1] for x in fout]
 		for i in range(len(inp)):
 			print('Case ' + str(i) + ':')
 			print(inp[i], end = '')
@@ -222,10 +223,10 @@ def usage(which = None):
 		print(pname, 'init URL')
 	exit()
 
-cf = CF()
 argv = sys.argv
 if len(argv) < 2:
 	usage()
+cf = CF()
 cmd = argv[1]
 if cmd == 'submit':
 	if len(argv) != 5:
@@ -246,9 +247,7 @@ elif cmd == 'test':
 	cf.test(*argv[2:])
 
 elif cmd == 'submission':
-	if len(argv) != 2:
-		usage('submission')
-	cf.submission(argv[2])
+	cf.submission()
 
 elif cmd == 'login':
 	cf.login()
