@@ -6,11 +6,20 @@ import os
 import pickle
 import sys
 import tabulate
+import html
 from bs4 import BeautifulSoup
 
 pname = "cf"
 
 class CF:
+	def checkURL(self, URL, r = None):
+		if r == None:
+			r = self.s.get(URL)
+		if r.status_code != 200:
+			return False
+		if r.url != URL:
+			return False
+		return True
 	def cat(self, inPath):
 		try:
 			fin = open(inPath, "r")
@@ -30,11 +39,10 @@ class CF:
 			print("dump error")
 			pass
 
-
 	def getPath(self):
 		realpath = os.path.realpath(__file__)
 		realpath = realpath[0: realpath.rfind('/')]
-		return realpath + "/.cookie"
+		return realpath
 
 
 	def checkLogin(self, r = None):
@@ -46,7 +54,7 @@ class CF:
 			exit()
 
 	def __init__(self, checkCookie = False):
-		self.cookiePath = self.getPath()
+		self.cookiePath = self.getPath() + '/.cookie'
 		self.url = "http://codeforces.com"
 		if os.path.isfile('.contest'):
 			self.contest = self.cat('.contest')[0:-1]
@@ -77,6 +85,7 @@ class CF:
 			fout = open(self.cookiePath, "wb")
 			pickle.dump(requests.utils.dict_from_cookiejar(cookie), fout)
 		except IOError:
+			print('cookie dump error')
 			exit()
 
 	def logout(self):
@@ -96,7 +105,7 @@ class CF:
 	
 	def which(self):
 		if os.path.isfile('.contest'):
-			self.cat('.contest')
+			print(self.cat('.contest'))
 		else:
 			print('no contest')
 
@@ -126,7 +135,6 @@ class CF:
 		def test_parser(soup, class_):
 			test = soup.find_all('div', class_= class_)
 			new_test = [re.search("(?<=<pre>).*(?=</pre)", str(x)).group(0) for x in test]
-			print(new_test)
 			return new_test
 		if not os.path.isfile(dumpBase + '.in'):
 			s = self.s
@@ -141,15 +149,17 @@ class CF:
 			self.dump(dumpBase+'.out', out)
 		fin = open(dumpBase + '.in')
 		fout = open(dumpBase + '.out')
-		inp = [x.replace('<br/>', '\n')[0:-1] for x in fin]
-		print(inp)
-		out = [x.replace('<br/>', '\n')[0:-1] for x in fout]
+		inp = [html.unescape(x.replace('<br/>', '\n')[0:-1]) for x in fin]
+		out = [html.unescape(x.replace('<br/>', '\n')[0:-1]) for x in fout]
 		for i in range(len(inp)):
 			print('Case ' + str(i) + ':')
 			print(inp[i], end = '')
 			print("your out:")
 
-			os.system("echo " + '"' +inp[i] + '"' + " | ./" + exePath + " " + "> .tmp.out; cat .tmp.out")	
+			ret = os.system("echo " + '"' +inp[i] + '"' + " | ./" + exePath + " " + "> .tmp.out && cat .tmp.out")	
+			if ret != 0:
+				print('\n<Runtime Error>')
+				exit()
 			print("sample out:")
 			print(out[i], end = '')
 			print()
@@ -175,7 +185,6 @@ class CF:
 				else:
 					table[-1].append(string[tmp[0]: tmp[-1] + 1])
 		print(tabulate.tabulate(table))	
-
 
 	def submit(self, problem, lang, sourcePath, force = False):
 		s = self.s
@@ -222,6 +231,7 @@ def usage(which = None):
 	elif which == 'init':
 		print(pname, 'init URL')
 	exit()
+
 
 argv = sys.argv
 if len(argv) < 2:
