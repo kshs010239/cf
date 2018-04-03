@@ -7,11 +7,44 @@ import pickle
 import sys
 import tabulate
 import html
+import io
+import time
 from bs4 import BeautifulSoup
 
-pname = "cf"
+pname = "cftool"
+
+def err_dump(s):
+	print(pname + ":", s)
+	exit()
+
+def try_call(cmd):
+	return os.system(cmd + " 2>/dev/null")
 
 class CF:
+	def result_notify(self, problem):
+		pid = os.fork()
+		if pid > 0:
+			exit()
+		if pid < 0:
+			err_dump("result notify: fork error")
+#s = io.StringIO()
+		sys.stdout = None
+		for _ in range(12):
+			time.sleep(10)
+			table = self.submission()
+			cur = ""
+			for v in table[::-1]:
+				if v[1] == problem:
+					cur = v
+			all_verdicts = ["Accepted", "passed", "Memory limit exceeded", "Time limit exceeded", 
+				"Runtime error", "Wrong answer", "Idleness limit exceeded", "Denial of judgement", "Compilation Error"]
+			for verdict in all_verdicts:
+				if verdict in cur[3]:
+					try_call("terminal-notifier -message " + '"' + problem + ": " + verdict + '"')
+					exit()
+#s.truncate(0)
+#			s.seek(0)
+			
 	def checkURL(self, URL, r = None):
 		if r == None:
 			r = self.s.get(URL)
@@ -88,8 +121,6 @@ class CF:
 			print('cookie dump error')
 			exit()
 
-	def logout(self):
-		os.remove(self.cookiePath)
 
 	def getCsrf(self, content):
 		csrf_token = re.search('\"X-Csrf-Token\".*\".*\"', content.decode("utf-8")).group(0)
@@ -111,7 +142,7 @@ class CF:
 
 	def login(self):
 		s = self.s
-		handle, password, rememberMe = (input("handle: "), getpass.getpass("password: "), input('remember me?(y/n):'))
+		handle, password = (input("handle: "), getpass.getpass("password: "))
 		url = self.url + "/enter"
 		r = s.get(url)
 		data = {"csrf_token":self.getCsrf(r.content), "handle":handle, "password":password, "action":"enter"}
@@ -120,26 +151,32 @@ class CF:
 	
 		r = s.post(url, data=data, headers = self.headers)
 		if r.status_code != 200:
-			print("<error>", r.status_code)
-			exit()
+			err_dump(r.status_code)
 		if "enter" in r.url:
 			print("login fail")
 			exit()
 		print("login success")
 		self.s = s
-		if rememberMe in ('y', 'Y'):
-			self.rememberMe(handle, s.cookies)
+		self.rememberMe(handle, s.cookies)
+
+	def logout(self):
+		os.remove(self.cookiePath)
 			
 	def test(self, problem, exePath = 'a.out'):
+		if not os.path.isfile(exePath):
+			err_dump("execute do not exist")
 		dumpBase = '.' + problem
 		def test_parser(soup, class_):
 			test = soup.find_all('div', class_= class_)
 			new_test = [re.search("(?<=<pre>).*(?=</pre)", str(x)).group(0) for x in test]
 			return new_test
-		if not os.path.isfile(dumpBase + '.in'):
+
+		if not os.path.isfile(dumpBase + '.in') or not os.path.isfile(dumpBase + '.out'):
 			s = self.s
 			url = self.url + '/' + self.contest + "/problem/" + problem
 			r = s.get(url)
+			if not self.checkURL(url, r):
+				err_dump("no such problem")
 			soup = BeautifulSoup(r.text, 'html.parser')
 			test_in = test_parser(soup, "input")
 			test_out = test_parser(soup, "output")
@@ -147,6 +184,7 @@ class CF:
 			out = "".join([x + '\n' for x in test_out])
 			self.dump(dumpBase+'.in', inp)
 			self.dump(dumpBase+'.out', out)
+
 		fin = open(dumpBase + '.in')
 		fout = open(dumpBase + '.out')
 		inp = [html.unescape(x.replace('<br/>', '\n')[0:-1]) for x in fin]
@@ -185,6 +223,7 @@ class CF:
 				else:
 					table[-1].append(string[tmp[0]: tmp[-1] + 1])
 		print(tabulate.tabulate(table))	
+		return table
 
 	def submit(self, problem, lang, sourcePath, force = False):
 		s = self.s
@@ -195,9 +234,14 @@ class CF:
 			select - programTypeId = {'G++14': 50, "pyhon2.7":7, "python3.6": 31}
 		"""
 		langType = {'g++': 50, "python2": 7, "python3": 31}
+		if not os.path.isfile(sourcePath):
+			err_dump("source do not exist.")
 		source = self.cat(sourcePath)
 		if source == None:
-			return
+			err_dump("source empty")
+		if lang not in langType:
+			err_dump("no such language")
+
 		data = {
 			'csrf_token' : self.getCsrf(r.content),
 			'programTypeId': langType[lang], 
@@ -211,13 +255,13 @@ class CF:
 		if 'submit' in r.url:
 			print('submit fail')
 			exit()
-		print('submit success');
-
+		print('submit success')
+		self.result_notify(problem)
 
 def usage(which = None):
 	if which == None:
 		print(pname, "(login|logout|submit|test|help|init) ...")
-		print('for more info, use "cf help (login|logout|submit|test)"')
+		print('for more info, use "' + pname + ' help (login|logout|submit|test)"')
 	elif which == 'login':
 		print(pname, "login")
 	elif which == 'logout':
