@@ -26,6 +26,13 @@ def start_daemon():
 def try_call(cmd):
 	return os.system(cmd + " 2>/dev/null")
 
+def notify(msg):
+	if try_call("terminal-notifier -message " + msg) == 0:
+		return
+	if try_call("notify-send " + pname + " " + msg):
+		return
+		
+
 class CF:
 	def result_notify(self, problem):
 		if start_daemon() < 0:
@@ -42,7 +49,7 @@ class CF:
 				"Runtime error", "Wrong answer", "Idleness limit exceeded", "Denial of judgement", "Compilation Error"]
 			for verdict in all_verdicts:
 				if verdict in cur[3]:
-					try_call("terminal-notifier -message " + '"' + problem + ": " + verdict + '"')
+					notify('"' + problem + ": " + verdict + '"')
 					exit()
 			
 	def checkURL(self, URL, r = None):
@@ -282,7 +289,9 @@ if len(argv) < 2:
 	usage()
 cf = CF()
 cmd = argv[1]
-if cmd == 'submit':
+if cmd == 'debug':
+	notify('a')
+elif cmd == 'submit':
 	if len(argv) != 5:
 		usage('submit')
 	cf.submit(*argv[2:])
