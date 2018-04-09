@@ -17,17 +17,19 @@ def err_dump(s):
 	print(pname + ":", s)
 	exit()
 
+def start_daemon():
+	pid = os.fork()
+	if pid > 0:
+		exit()
+	return pid
+
 def try_call(cmd):
 	return os.system(cmd + " 2>/dev/null")
 
 class CF:
 	def result_notify(self, problem):
-		pid = os.fork()
-		if pid > 0:
-			exit()
-		if pid < 0:
+		if start_daemon() < 0:
 			err_dump("result notify: fork error")
-#s = io.StringIO()
 		sys.stdout = None
 		for _ in range(12):
 			time.sleep(10)
@@ -42,8 +44,6 @@ class CF:
 				if verdict in cur[3]:
 					try_call("terminal-notifier -message " + '"' + problem + ": " + verdict + '"')
 					exit()
-#s.truncate(0)
-#			s.seek(0)
 			
 	def checkURL(self, URL, r = None):
 		if r == None:
