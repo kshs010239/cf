@@ -6,9 +6,9 @@ import os
 import pickle
 import sys
 import tabulate
-import html
 import io
 import time
+import html
 from bs4 import BeautifulSoup
 
 pname = "cftool"
@@ -27,13 +27,45 @@ def try_call(cmd):
 	return os.system(cmd + " 2>/dev/null")
 
 def notify(msg):
-	if try_call("terminal-notifier -message " + msg) == 0:
+	if try_call("terminal-notifier -title " + pname + " -message " + msg) == 0:
 		return
-	if try_call("notify-send " + pname + " " + msg):
+	if try_call("notify-send " + pname + " " + msg) == 0:
 		return
 		
+def cat(inPath):
+	try:
+		fin = open(inPath, "r")
+		s = ""
+		for line in fin:
+			s += line;
+		return s
+	except IOError:
+		print('no such file')
+		return None
+		
+def dump(outPath, text):
+	try:
+		fout = open(outPath, "w")
+		fout.write(text)
+	except IOError:
+		print("dump error")
+		pass
 
+def getPath():
+	realpath = os.path.realpath(__file__)
+	realpath = realpath[0: realpath.rfind('/')]
+	return realpath
+
+def getCsrf(content):
+	csrf_token = re.search('\"X-Csrf-Token\".*\".*\"', content.decode("utf-8")).group(0)
+	csrf_token = re.search('(?<=content=\")[^\"]*', csrf_token).group(0)
+	return csrf_token
+
+"""
+	cf structure, storing session, path, url
+"""
 class CF:
+
 	def result_notify(self, problem):
 		if start_daemon() < 0:
 			err_dump("result notify: fork error")
@@ -54,63 +86,45 @@ class CF:
 			
 	def checkURL(self, URL, r = None):
 		if r == None:
-			r = self.s.get(URL)
+			r = self.session.get(URL)
 		if r.status_code != 200:
 			return False
 		if r.url != URL:
 			return False
 		return True
-	def cat(self, inPath):
-		try:
-			fin = open(inPath, "r")
-			s = ""
-			for line in fin:
-				s += line;
-			return s
-		except IOError:
-			print('no such file')
-			return None
 
-	def dump(self, outPath, text):
-		try:
-			fout = open(outPath, "w")
-			fout.write(text)
-		except IOError:
-			print("dump error")
-			pass
-
-	def getPath(self):
-		realpath = os.path.realpath(__file__)
-		realpath = realpath[0: realpath.rfind('/')]
-		return realpath
-
+	def checkContest(self):
+		return self.contest != None
 
 	def checkLogin(self, r = None):
-		if r == None:
-			r = self.s.get(self.url)
+		self.session.cookies = self.getCookie()
+		r = self.session.get(self.url)
 		if 'Logout' not in r.text:
 			self.login()
-			print('not login')
-			exit()
+
+	def check(self, URL):
+		r = self.session.get(URL)
+		if not (self.checkURL(URL)):
+			pass
 
 	def __init__(self, checkCookie = False):
-		self.cookiePath = self.getPath() + '/.cookie'
+		self.cookiePath = getPath() + '/.cookie'
 		self.url = "http://codeforces.com"
+		
 		if os.path.isfile('.contest'):
-			self.contest = self.cat('.contest')[0:-1]
+			self.contest = cat('.contest')[0:-1]
+		else:
+			self.contest = None
+
 		self.headers = {
 			'Referer': self.url,
 			'User-agent': 
 				'Mozilla/5.0 (X11; CrOS i686 2268.111.0) AppleWebKit/536.11 (KHTML, like Gecko) Chrome/20.0.1132.57 Safari/536.11'
 		}
-		cookie = self.getCookie()
-		self.s = requests.Session()
-		if not cookie:
-			self.login()
-		else:
-			self.s.cookies = cookie
-			if checkCookie:
-				check_login()	
+
+		self.session = requests.Session()
+#if checkCookie:
+#				check_login()	
 
 	def getCookie(self):
 		try:
@@ -120,51 +134,55 @@ class CF:
 		except IOError:
 			return None
 
-	def rememberMe(self, h, cookie):
+	def saveCookie(self):
 		try:
 			fout = open(self.cookiePath, "wb")
-			pickle.dump(requests.utils.dict_from_cookiejar(cookie), fout)
+			pickle.dump(requests.utils.dict_from_cookiejar(self.session.cookies), fout)
 		except IOError:
 			print('cookie dump error')
 			exit()
 
 
-	def getCsrf(self, content):
-		csrf_token = re.search('\"X-Csrf-Token\".*\".*\"', content.decode("utf-8")).group(0)
-		csrf_token = re.search('(?<=content=\")[^\"]*', csrf_token).group(0)
-		return csrf_token
 
+	"""
+		init:
+		who: not implemented yet
+		which: not implemented yet
+		login:
+		logout:
+		test:
+		submission:
+		submit:
+	"""
 	def init(self, URL):
 		URL = URL.split('/')
-		self.dump('.contest', URL[-2] + '/' + URL[-1] + '\n')
+		dump('.contest', URL[-2] + '/' + URL[-1] + '\n')
 
 	def who(self):
 		pass
 	
 	def which(self):
 		if os.path.isfile('.contest'):
-			print(self.cat('.contest'))
+			print(cat('.contest'))
 		else:
 			print('no contest')
 
 	def login(self):
-		s = self.s
-		handle, password = (input("handle: "), getpass.getpass("password: "))
 		url = self.url + "/enter"
-		r = s.get(url)
-		data = {"csrf_token":self.getCsrf(r.content), "handle":handle, "password":password, "action":"enter"}
-		if rememberMe:
-			data['remember'] = ""
+		csrf = getCsrf(self.session.get(url).content)
+
+		handle, password = (input("handle: "), getpass.getpass("password: "))
+		data = {"csrf_token":csrf, "handle":handle, "password":password, "action":"enter"}
+		data['remember'] = ""
 	
-		r = s.post(url, data=data, headers = self.headers)
+		r = self.session.post(url, data=data, headers = self.headers)
 		if r.status_code != 200:
 			err_dump(r.status_code)
 		if "enter" in r.url:
 			print("login fail")
 			exit()
 		print("login success")
-		self.s = s
-		self.rememberMe(handle, s.cookies)
+		self.saveCookie()
 
 	def logout(self):
 		os.remove(self.cookiePath)
@@ -179,7 +197,7 @@ class CF:
 			return new_test
 
 		if not os.path.isfile(dumpBase + '.in') or not os.path.isfile(dumpBase + '.out'):
-			s = self.s
+			s = self.session
 			url = self.url + '/' + self.contest + "/problem/" + problem
 			r = s.get(url)
 			if not self.checkURL(url, r):
@@ -189,8 +207,8 @@ class CF:
 			test_out = test_parser(soup, "output")
 			inp = "".join([x + '\n' for x in test_in])
 			out = "".join([x + '\n' for x in test_out])
-			self.dump(dumpBase+'.in', inp)
-			self.dump(dumpBase+'.out', out)
+			dump(dumpBase+'.in', inp)
+			dump(dumpBase+'.out', out)
 
 		fin = open(dumpBase + '.in')
 		fout = open(dumpBase + '.out')
@@ -211,8 +229,8 @@ class CF:
 	
 	def submission(self):
 		url = self.url + '/' + self.contest + '/my'
-		r = self.s.get(url)
-		self.checkLogin(r)
+		self.checkLogin()
+		r = self.session.get(url)
 		soup = BeautifulSoup(r.text, 'html.parser')
 		soup_v = soup.findAll('tr', attrs = {'data-a':re.compile(r'.*')})
 		soup_g = [x.findAll('td') for x in soup_v]
@@ -233,24 +251,24 @@ class CF:
 		return table
 
 	def submit(self, problem, lang, sourcePath, force = False):
-		s = self.s
+		s = self.session
 		url = self.url + '/' + self.contest + "/submit"
+		self.checkLogin()
 		r = s.get(url)
-		self.checkLogin(r)
 		"""
 			select - programTypeId = {'G++14': 50, "pyhon2.7":7, "python3.6": 31}
 		"""
 		langType = {'g++': 50, "python2": 7, "python3": 31}
 		if not os.path.isfile(sourcePath):
 			err_dump("source do not exist.")
-		source = self.cat(sourcePath)
+		source = cat(sourcePath)
 		if source == None:
 			err_dump("source empty")
 		if lang not in langType:
 			err_dump("no such language")
 
 		data = {
-			'csrf_token' : self.getCsrf(r.content),
+			'csrf_token' : getCsrf(r.content),
 			'programTypeId': langType[lang], 
 			'submittedProblemIndex': problem,
 			'source': source
@@ -283,21 +301,22 @@ def usage(which = None):
 		print(pname, 'init URL')
 	exit()
 
-
 argv = sys.argv
 if len(argv) < 2:
 	usage()
 cf = CF()
 cmd = argv[1]
+
 if cmd == 'debug':
 	notify('a')
+
 elif cmd == 'submit':
 	if len(argv) != 5:
 		usage('submit')
 	cf.submit(*argv[2:])
 
 elif cmd == 'init':
-	if len(argv) < 3:
+	if len(argv) != 3:
 		usage('init')
 	cf.init(argv[2])
 
@@ -327,5 +346,3 @@ elif cmd == 'help':
 else:
 	usage()
 
-#print('submit')
-#tmp.submit(contest = '922', problem = 'C', lang = 'g++', sourcePath = 'C.cpp')
