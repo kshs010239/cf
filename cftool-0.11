@@ -172,13 +172,12 @@ class CF:
 		csrf = getCsrf(self.session.get(url).content)
 
 		handle, password = (input("handle: "), getpass.getpass("password: "))
-		data = {"csrf_token":csrf, "handle":handle, "password":password, "action":"enter"}
+		data = {"csrf_token":csrf, "handleOrEmail":handle, "password":password, "action":"enter"}
 		data['remember'] = ""
-	
 		r = self.session.post(url, data=data, headers = self.headers)
 		if r.status_code != 200:
 			err_dump(r.status_code)
-		if "enter" in r.url:
+		if r.url == url:
 			print("login fail")
 			exit()
 		print("login success")
