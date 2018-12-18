@@ -1,5 +1,5 @@
 # cftool-0.1
-A command-line tool for codeforces test and submit problem.
+A command-line tool for testing and submitting problem in codeforces.
 
 ## handle
 
