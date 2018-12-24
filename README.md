@@ -1,3 +1,6 @@
+# ERROR
+There are some problem that need to fix after Codeforces change their html.
+
 # cftool-0.1
 A command-line tool for testing and submitting problem in codeforces.
 
